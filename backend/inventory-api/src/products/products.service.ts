@@ -1,16 +1,45 @@
 import { Injectable } from '@nestjs/common';
 import { Product } from './product.interface';
+import { CreateProductDto } from './dto/create-product.dto';
 
 @Injectable()
 export class ProductsService {
   private readonly products: Product[] = [
-    { id: 1, name: 'Product 1', price: 10 },
-    { id: 2, name: 'Product 2', price: 20 },
-    { id: 3, name: 'Product 3', price: 30 },
+    {
+      id: 1,
+      name: 'Product 1',
+      price: 10,
+      description: 'Description 1',
+      quantity: 5,
+      created_at: new Date(),
+      updated_at: new Date(),
+    },
+    {
+      id: 2,
+      name: 'Product 2',
+      price: 20,
+      description: 'Description 2',
+      quantity: 10,
+      created_at: new Date(),
+      updated_at: new Date(),
+    },
+    {
+      id: 3,
+      name: 'Product 3',
+      price: 30,
+      description: 'Description 3',
+      quantity: 15,
+      created_at: new Date(),
+      updated_at: new Date(),
+    },
     {
       id: 4,
       name: 'MacBook Air M5',
       price: 97711,
+      description: 'Description 4',
+      quantity: 20,
+      created_at: new Date(),
+      updated_at: new Date(),
     },
   ];
 
@@ -28,7 +57,16 @@ export class ProductsService {
     );
   }
 
-  addProduct(product: Product): void {
+  addProduct(createProductDto: CreateProductDto): void {
+    const product: Product = {
+      id: this.products.length + 1,
+      name: createProductDto.name,
+      description: createProductDto.description,
+      price: createProductDto.price,
+      quantity: createProductDto.quantity,
+      created_at: new Date(),
+      updated_at: new Date(),
+    };
     this.products.push(product);
   }
 
