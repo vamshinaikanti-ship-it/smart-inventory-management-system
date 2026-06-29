@@ -1,9 +1,10 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { Product } from './product.interface';
 import { CreateProductDto } from './dto/create-product.dto';
 
 @Injectable()
 export class ProductsService {
+  private readonly logger = new Logger(ProductsService.name);
   private readonly products: Product[] = [
     {
       id: 1,
@@ -44,14 +45,22 @@ export class ProductsService {
   ];
 
   getAll(): Product[] {
+    this.logger.log('Fetching all products');
     return this.products;
   }
 
   findById(id: number): Product | undefined {
-    return this.products.find((product) => product.id === id);
+    const product = this.products.find((product) => product.id === id);
+    if (product) {
+      this.logger.log(`Fetching product with id ${id}`);
+    } else {
+      this.logger.warn(`Product with id ${id} not found`);
+    }
+    return product;
   }
 
   searchByName(name: string): Product[] {
+    this.logger.log(`Searching for products with name containing ${name}`);
     return this.products.filter((product) =>
       product.name.toLowerCase().includes(name.toLowerCase()),
     );
@@ -67,20 +76,27 @@ export class ProductsService {
       created_at: new Date(),
       updated_at: new Date(),
     };
+    this.logger.log(`Creating product ${createProductDto.name}`);
     this.products.push(product);
   }
 
   updateProduct(id: number, updatedProduct: Product): void {
     const index = this.products.findIndex((product) => product.id === id);
     if (index !== -1) {
+      this.logger.log(`Updating product with id ${id}`);
       this.products[index] = updatedProduct;
+    } else {
+      this.logger.warn(`Product with id ${id} not found`);
     }
   }
 
   deleteProduct(id: number): void {
     const index = this.products.findIndex((product) => product.id === id);
     if (index !== -1) {
+      this.logger.log(`Deleting product with id ${id}`);
       this.products.splice(index, 1);
+    } else {
+      this.logger.warn(`Product with id ${id} not found`);
     }
   }
 }
