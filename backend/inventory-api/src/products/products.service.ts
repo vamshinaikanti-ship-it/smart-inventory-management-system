@@ -1,10 +1,20 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { ILike, Repository } from 'typeorm';
+import {
+  Between,
+  FindOptionsOrder,
+  FindOptionsWhere,
+  ILike,
+  LessThanOrEqual,
+  MoreThanOrEqual,
+  Repository,
+} from 'typeorm';
 
 import { Product } from './entities/product.entity';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
+import { ProductQueryDto } from './dto/produt-query.dto';
+import { PaginatedResponse } from '../common/interfaces/paginated-response.interface';
 
 @Injectable()
 export class ProductsService {
@@ -18,6 +28,55 @@ export class ProductsService {
   async getAll(): Promise<Product[]> {
     this.logger.log('Fetching all products');
     return this.productRepository.find();
+  }
+
+  async findAll(query: ProductQueryDto): Promise<PaginatedResponse<Product>> {
+    this.logger.log('Fetching products');
+
+    const page = query.page ?? 1;
+    const pageSize = query.pageSize ?? 10;
+    const skip = (page - 1) * pageSize;
+
+    const where: FindOptionsWhere<Product> = {};
+
+    if (query.search) {
+      where.name = ILike(`%${query.search}%`);
+    }
+
+    if (query.minPrice !== undefined && query.maxPrice !== undefined) {
+      where.price = Between(query.minPrice, query.maxPrice);
+    } else if (query.minPrice !== undefined) {
+      where.price = MoreThanOrEqual(query.minPrice);
+    } else if (query.maxPrice !== undefined) {
+      where.price = LessThanOrEqual(query.maxPrice);
+    }
+
+    if (query.minStock !== undefined) {
+      where.quantity = MoreThanOrEqual(query.minStock);
+    }
+
+    const order: FindOptionsOrder<Product> = query.sortBy
+      ? { [query.sortBy]: query.order ?? 'ASC' }
+      : { id: 'DESC' };
+
+    const [products, total] = await this.productRepository.findAndCount({
+      where,
+      order,
+      skip,
+      take: pageSize,
+    });
+
+    return {
+      data: products,
+      pagination: {
+        page,
+        pageSize,
+        totalRecords: total,
+        totalPages: Math.ceil(total / pageSize),
+        hasNextPage: page * pageSize < total,
+        hasPreviousPage: page > 1,
+      },
+    };
   }
 
   async findById(id: number): Promise<Product> {
