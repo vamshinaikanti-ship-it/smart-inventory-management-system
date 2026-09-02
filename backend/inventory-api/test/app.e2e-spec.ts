@@ -20,7 +20,42 @@ describe('AppController (e2e)', () => {
     return request(app.getHttpServer())
       .get('/')
       .expect(200)
-      .expect('Hello World!');
+      .expect('Hello Vamshi!');
+  });
+
+  it('/products (GET)', async () => {
+    const response = await request(app.getHttpServer()).get('/products');
+
+    expect(response.status).toBe(200);
+    expect(Array.isArray(response.body.data ?? response.body)).toBe(true);
+  });
+
+  it('/category (GET)', async () => {
+    const response = await request(app.getHttpServer()).get('/category');
+
+    expect(response.status).toBe(200);
+    expect(Array.isArray(response.body)).toBe(true);
+  });
+
+  it('/products (POST) should create a product when category_id is provided', async () => {
+    const categoryResponse = await request(app.getHttpServer())
+      .post('/category')
+      .send({ name: 'API Validation Category' });
+
+    expect(categoryResponse.status).toBe(201);
+
+    const productResponse = await request(app.getHttpServer())
+      .post('/products')
+      .send({
+        name: 'API Validation Product',
+        description: 'Created in API validation test',
+        price: 19.99,
+        quantity: 5,
+        category_id: categoryResponse.body.id,
+      });
+
+    expect(productResponse.status).toBe(201);
+    expect(productResponse.body.name).toBe('API Validation Product');
   });
 
   afterEach(async () => {

@@ -15,6 +15,7 @@ import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { ProductQueryDto } from './dto/produt-query.dto';
 import { PaginatedResponse } from '../common/interfaces/paginated-response.interface';
+import { Category } from '../category/entities/category.entity';
 
 @Injectable()
 export class ProductsService {
@@ -23,6 +24,8 @@ export class ProductsService {
   constructor(
     @InjectRepository(Product)
     private readonly productRepository: Repository<Product>,
+    @InjectRepository(Category)
+    private readonly categoryRepository: Repository<Category>,
   ) {}
 
   async getAll(): Promise<Product[]> {
@@ -107,7 +110,23 @@ export class ProductsService {
   async create(createProductDto: CreateProductDto): Promise<Product> {
     this.logger.log(`Creating product "${createProductDto.name}"`);
 
-    const product = this.productRepository.create(createProductDto);
+    const category = await this.categoryRepository.findOne({
+      where: { id: createProductDto.category_id },
+    });
+
+    if (!category) {
+      throw new NotFoundException(
+        `Category with id ${createProductDto.category_id} not found`,
+      );
+    }
+
+    const product = this.productRepository.create({
+      name: createProductDto.name,
+      description: createProductDto.description,
+      price: createProductDto.price,
+      quantity: createProductDto.quantity,
+      category,
+    });
 
     return this.productRepository.save(product);
   }

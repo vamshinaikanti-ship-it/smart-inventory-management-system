@@ -28,11 +28,6 @@ export class ProductsController {
     return this.productsService.findAll(query);
   }
 
-  @Get()
-  getAllProducts(): Promise<Product[]> {
-    return this.productsService.getAll();
-  }
-
   @Get('search')
   searchProductsByName(@Query('name') name: string): Promise<Product[]> {
     if (!name) {

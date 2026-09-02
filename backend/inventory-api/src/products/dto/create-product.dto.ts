@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsNotEmpty, IsNumber, IsString, Min } from 'class-validator';
+import { IsInt, IsNotEmpty, IsNumber, IsString, Min } from 'class-validator';
 
 export class CreateProductDto {
   @IsString()
@@ -17,5 +17,11 @@ export class CreateProductDto {
 
   @IsNumber()
   @Min(0)
+  @Type(() => Number)
   quantity!: number;
+
+  @IsInt()
+  @Min(1)
+  @Type(() => Number)
+  category_id!: number;
 }
