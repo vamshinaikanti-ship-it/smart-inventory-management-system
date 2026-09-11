@@ -33,6 +33,17 @@ export class ProductsService {
     return this.productRepository.find();
   }
 
+  async getLowStockProducts(threshold: number): Promise<Product[]> {
+    this.logger.log(`Fetching products with quantity at or below ${threshold}`);
+
+    return this.productRepository.find({
+      where: {
+        quantity: LessThanOrEqual(threshold),
+      },
+      order: { quantity: 'ASC' },
+    });
+  }
+
   async findAll(query: ProductQueryDto): Promise<PaginatedResponse<Product>> {
     this.logger.log('Fetching products');
 
