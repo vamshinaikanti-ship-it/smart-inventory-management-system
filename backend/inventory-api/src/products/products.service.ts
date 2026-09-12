@@ -108,14 +108,56 @@ export class ProductsService {
     return product;
   }
 
-  async searchByName(name: string): Promise<Product[]> {
+  async searchByName(name: string, limit = 10): Promise<Product[]> {
     this.logger.log(`Searching products with name "${name}"`);
 
     return this.productRepository.find({
       where: {
         name: ILike(`%${name}%`),
       },
+      take: limit,
+      order: { id: 'ASC' },
     });
+  }
+
+  async getProductsByCategory(categoryId: number): Promise<Product[]> {
+    this.logger.log(`Fetching products for category id ${categoryId}`);
+
+    return this.productRepository.find({
+      where: {
+        category: { id: categoryId },
+      },
+      order: { id: 'ASC' },
+    });
+  }
+
+  async getOutOfStockProducts(): Promise<Product[]> {
+    this.logger.log('Fetching out-of-stock products');
+
+    return this.productRepository.find({
+      where: {
+        quantity: 0,
+      },
+      order: { id: 'ASC' },
+    });
+  }
+
+  async getTotalInventory(): Promise<number> {
+    const result = await this.productRepository
+      .createQueryBuilder('product')
+      .select('SUM(product.quantity)', 'total')
+      .getRawOne();
+
+    return Number(result?.total ?? 0);
+  }
+
+  async getInventoryValue(): Promise<number> {
+    const result = await this.productRepository
+      .createQueryBuilder('product')
+      .select('SUM(product.price * product.quantity)', 'value')
+      .getRawOne();
+
+    return Number(result?.value ?? 0);
   }
 
   async create(createProductDto: CreateProductDto): Promise<Product> {

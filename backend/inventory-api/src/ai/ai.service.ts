@@ -1,7 +1,11 @@
 import { BadGatewayException, Injectable } from '@nestjs/common';
 import { Ollama } from 'ollama';
 import { ProductsService } from '../products/products.service';
-import { AI_ANSWER_FORMAT, LOW_STOCK_TOOL } from './constants/ai.constants';
+import {
+  AI_ANSWER_FORMAT,
+  INVENTORY_TOOLS,
+  LOW_STOCK_TOOL,
+} from './constants/ai.constants';
 import { AiAnswer } from './interfaces/ai-answer.interface';
 
 @Injectable()
@@ -37,70 +41,164 @@ export class AiService {
 
     try {
       const ollama = this.getOllamaClient();
-      let response = await ollama.chat({
-        model,
-        messages: [{ role: 'user', content: question }],
-        tools: [LOW_STOCK_TOOL],
-        format: AI_ANSWER_FORMAT,
-      });
+      const messages: any[] = [{ role: 'user', content: question }];
 
       for (let attempt = 0; attempt < 3; attempt += 1) {
-        const functionCalls = response.message.tool_calls ?? [];
-
-        if (functionCalls.length === 0) {
-          break;
-        }
-
-        const toolResponses = await Promise.all(
-          functionCalls.map(async (toolCall) => {
-            if (toolCall.function.name !== LOW_STOCK_TOOL.function.name) {
-              throw new BadGatewayException(
-                `Unsupported AI function: ${toolCall.function.name}`,
-              );
-            }
-
-            const argumentsObject = this.parseToolArguments(
-              toolCall.function.arguments,
-            );
-            const products = await this.productsService.getLowStockProducts(
-              argumentsObject.threshold,
-            );
-
-            return {
-              role: 'tool' as const,
-              tool_name: toolCall.function.name,
-              content: JSON.stringify(
-                products.map(({ id, name, quantity }) => ({
-                  id,
-                  name,
-                  quantity,
-                })),
-              ),
-            };
-          }),
-        );
-
-        response = await ollama.chat({
+        const response = await ollama.chat({
           model,
-          messages: [
-            { role: 'user', content: question },
-            {
-              role: 'assistant',
-              content: '',
-              tool_calls: functionCalls,
-            },
-            ...toolResponses,
-          ],
-          tools: [LOW_STOCK_TOOL],
+          messages,
+          tools: INVENTORY_TOOLS,
           format: AI_ANSWER_FORMAT,
         });
+
+        messages.push(response.message);
+
+        const toolCalls = response.message.tool_calls ?? [];
+
+        if (toolCalls.length === 0) {
+          return this.parseAiAnswer(response.message.content || '{}');
+        }
+
+        for (const toolCall of toolCalls) {
+          const toolName = toolCall.function.name;
+
+          switch (toolName) {
+            case LOW_STOCK_TOOL.function.name: {
+              const { threshold } = this.parseToolArguments(
+                toolCall.function.arguments,
+              );
+
+              const products =
+                await this.productsService.getLowStockProducts(threshold);
+
+              messages.push({
+                role: 'tool',
+                tool_name: toolName,
+                content: JSON.stringify(
+                  products.map(({ id, name, quantity }) => ({
+                    id,
+                    name,
+                    quantity,
+                  })),
+                ),
+              });
+              break;
+            }
+
+            case 'search_products': {
+              const { query, limit } = this.parseSearchProductsArguments(
+                toolCall.function.arguments,
+              );
+
+              const products = await this.productsService.searchByName(
+                query,
+                limit,
+              );
+
+              messages.push({
+                role: 'tool',
+                tool_name: toolName,
+                content: JSON.stringify(
+                  products.map(({ id, name, quantity }) => ({
+                    id,
+                    name,
+                    quantity,
+                  })),
+                ),
+              });
+              break;
+            }
+
+            case 'get_product_by_id': {
+              const { id } = this.parseProductIdArguments(
+                toolCall.function.arguments,
+              );
+
+              const product = await this.productsService.findById(id);
+
+              messages.push({
+                role: 'tool',
+                tool_name: toolName,
+                content: JSON.stringify({
+                  id: product.id,
+                  name: product.name,
+                  quantity: product.quantity,
+                }),
+              });
+              break;
+            }
+
+            case 'get_total_inventory': {
+              const total = await this.productsService.getTotalInventory();
+
+              messages.push({
+                role: 'tool',
+                tool_name: toolName,
+                content: JSON.stringify({ total }),
+              });
+              break;
+            }
+
+            case 'get_inventory_value': {
+              const value = await this.productsService.getInventoryValue();
+
+              messages.push({
+                role: 'tool',
+                tool_name: toolName,
+                content: JSON.stringify({ value }),
+              });
+              break;
+            }
+
+            case 'get_products_by_category': {
+              const { category_id } = this.parseCategoryIdArguments(
+                toolCall.function.arguments,
+              );
+
+              const products =
+                await this.productsService.getProductsByCategory(category_id);
+
+              messages.push({
+                role: 'tool',
+                tool_name: toolName,
+                content: JSON.stringify(
+                  products.map(({ id, name, quantity }) => ({
+                    id,
+                    name,
+                    quantity,
+                  })),
+                ),
+              });
+              break;
+            }
+
+            case 'get_out_of_stock_products': {
+              const products =
+                await this.productsService.getOutOfStockProducts();
+
+              messages.push({
+                role: 'tool',
+                tool_name: toolName,
+                content: JSON.stringify(
+                  products.map(({ id, name, quantity }) => ({
+                    id,
+                    name,
+                    quantity,
+                  })),
+                ),
+              });
+              break;
+            }
+
+            default:
+              throw new BadGatewayException(
+                `Unsupported AI function: ${toolName}`,
+              );
+          }
+        }
       }
 
-      if ((response.message.tool_calls ?? []).length > 0) {
-        throw new BadGatewayException('AI tool call limit exceeded');
-      }
-
-      return this.parseAiAnswer(response.message.content || '{}');
+      throw new BadGatewayException('AI tool call limit exceeded');
     } catch (error) {
       if (error instanceof BadGatewayException) {
         throw error;
@@ -141,26 +239,160 @@ export class AiService {
     }
   }
 
-  private parseAiAnswer(output: string): AiAnswer {
+  private parseSearchProductsArguments(argumentsValue: unknown): {
+    query: string;
+    limit: number;
+  } {
     try {
-      const answer: unknown = JSON.parse(output);
+      const argumentsObject =
+        typeof argumentsValue === 'string'
+          ? (JSON.parse(argumentsValue) as Record<string, unknown>)
+          : (argumentsValue as Record<string, unknown>);
 
       if (
-        typeof answer !== 'object' ||
-        answer === null ||
-        !('answer' in answer) ||
-        typeof answer.answer !== 'string' ||
-        !('products' in answer) ||
-        !Array.isArray(answer.products)
+        typeof argumentsObject !== 'object' ||
+        argumentsObject === null ||
+        !('query' in argumentsObject)
+      ) {
+        throw new Error('Invalid tool arguments');
+      }
+
+      const { query, limit } = argumentsObject;
+
+      if (typeof query !== 'string' || query.trim().length === 0) {
+        throw new Error('Invalid tool arguments');
+      }
+
+      const normalizedLimit =
+        typeof limit === 'number' && Number.isFinite(limit) && limit > 0
+          ? Math.min(Math.trunc(limit), 20)
+          : 10;
+
+      return { query: query.trim(), limit: normalizedLimit };
+    } catch {
+      throw new BadGatewayException('AI returned invalid tool arguments');
+    }
+  }
+
+  private parseProductIdArguments(argumentsValue: unknown): { id: number } {
+    try {
+      const argumentsObject =
+        typeof argumentsValue === 'string'
+          ? (JSON.parse(argumentsValue) as Record<string, unknown>)
+          : (argumentsValue as Record<string, unknown>);
+
+      if (
+        typeof argumentsObject !== 'object' ||
+        argumentsObject === null ||
+        !('id' in argumentsObject)
+      ) {
+        throw new Error('Invalid tool arguments');
+      }
+
+      const { id } = argumentsObject;
+
+      if (typeof id !== 'number' || !Number.isFinite(id) || id <= 0) {
+        throw new Error('Invalid tool arguments');
+      }
+
+      return { id };
+    } catch {
+      throw new BadGatewayException('AI returned invalid tool arguments');
+    }
+  }
+
+  private parseCategoryIdArguments(argumentsValue: unknown): {
+    category_id: number;
+  } {
+    try {
+      const argumentsObject =
+        typeof argumentsValue === 'string'
+          ? (JSON.parse(argumentsValue) as Record<string, unknown>)
+          : (argumentsValue as Record<string, unknown>);
+
+      if (
+        typeof argumentsObject !== 'object' ||
+        argumentsObject === null ||
+        !('category_id' in argumentsObject)
+      ) {
+        throw new Error('Invalid tool arguments');
+      }
+
+      const { category_id } = argumentsObject;
+
+      if (
+        typeof category_id !== 'number' ||
+        !Number.isFinite(category_id) ||
+        category_id <= 0
+      ) {
+        throw new Error('Invalid tool arguments');
+      }
+
+      return { category_id };
+    } catch {
+      throw new BadGatewayException('AI returned invalid tool arguments');
+    }
+  }
+
+  private extractJsonCandidate(output: string): string {
+    const trimmed = output.trim();
+
+    const fencedMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+    if (fencedMatch?.[1]) {
+      return fencedMatch[1].trim();
+    }
+
+    return trimmed;
+  }
+
+  private parseAiAnswer(output: string): AiAnswer {
+    const rawOutput = output.trim();
+    const jsonCandidate = this.extractJsonCandidate(rawOutput);
+
+    try {
+      const answer: unknown = JSON.parse(jsonCandidate);
+
+      if (typeof answer !== 'object' || answer === null) {
+        throw new Error('Invalid structured response');
+      }
+
+      const record = answer as Record<string, unknown>;
+
+      if (
+        !('answer' in record) ||
+        typeof record.answer !== 'string' ||
+        !('products' in record) ||
+        !Array.isArray(record.products)
       ) {
         throw new Error('Invalid structured response');
       }
 
-      return answer as AiAnswer;
+      const products = record.products
+        .filter(
+          (product): product is Record<string, unknown> =>
+            typeof product === 'object' && product !== null,
+        )
+        .map((product) => ({
+          id: typeof product.id === 'number' ? product.id : 0,
+          name: typeof product.name === 'string' ? product.name : '',
+          quantity: typeof product.quantity === 'number' ? product.quantity : 0,
+        }))
+        .filter(
+          (product) =>
+            Number.isFinite(product.id) &&
+            product.name.trim().length > 0 &&
+            Number.isFinite(product.quantity),
+        );
+
+      return {
+        answer: record.answer,
+        products,
+      };
     } catch {
-      throw new BadGatewayException(
-        'AI returned an invalid structured response',
-      );
+      return {
+        answer: rawOutput || 'I could not generate a structured response.',
+        products: [],
+      };
     }
   }
 }
