@@ -25,16 +25,18 @@ describe('AppController (e2e)', () => {
 
   it('/products (GET)', async () => {
     const response = await request(app.getHttpServer()).get('/products');
+    const payload = response.body as { data?: unknown[] };
 
     expect(response.status).toBe(200);
-    expect(Array.isArray(response.body.data ?? response.body)).toBe(true);
+    expect(Array.isArray(payload.data ?? payload)).toBe(true);
   });
 
   it('/category (GET)', async () => {
     const response = await request(app.getHttpServer()).get('/category');
+    const payload = response.body as unknown[];
 
     expect(response.status).toBe(200);
-    expect(Array.isArray(response.body)).toBe(true);
+    expect(Array.isArray(payload)).toBe(true);
   });
 
   it('/products (POST) should create a product when category_id is provided', async () => {
@@ -44,6 +46,7 @@ describe('AppController (e2e)', () => {
 
     expect(categoryResponse.status).toBe(201);
 
+    const categoryBody = categoryResponse.body as { id?: number };
     const productResponse = await request(app.getHttpServer())
       .post('/products')
       .send({
@@ -51,11 +54,12 @@ describe('AppController (e2e)', () => {
         description: 'Created in API validation test',
         price: 19.99,
         quantity: 5,
-        category_id: categoryResponse.body.id,
+        category_id: categoryBody.id,
       });
+    const productBody = productResponse.body as { name?: string };
 
     expect(productResponse.status).toBe(201);
-    expect(productResponse.body.name).toBe('API Validation Product');
+    expect(productBody.name).toBe('API Validation Product');
   });
 
   afterEach(async () => {

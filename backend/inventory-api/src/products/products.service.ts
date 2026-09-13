@@ -143,19 +143,19 @@ export class ProductsService {
   }
 
   async getTotalInventory(): Promise<number> {
-    const result = await this.productRepository
+    const result = (await this.productRepository
       .createQueryBuilder('product')
       .select('SUM(product.quantity)', 'total')
-      .getRawOne();
+      .getRawOne()) as { total?: string | number | null } | null;
 
     return Number(result?.total ?? 0);
   }
 
   async getInventoryValue(): Promise<number> {
-    const result = await this.productRepository
+    const result = (await this.productRepository
       .createQueryBuilder('product')
       .select('SUM(product.price * product.quantity)', 'value')
-      .getRawOne();
+      .getRawOne()) as { value?: string | number | null } | null;
 
     return Number(result?.value ?? 0);
   }
