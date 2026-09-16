@@ -1,7 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { AgentLogger } from './ai.logger';
 import { AiService } from './ai.service';
-import { ProductsService } from '../products/products.service';
+import { AiToolExecutor } from './ai-tool.executor';
 
 describe('AgentLogger', () => {
   it('should write structured execution events with an execution id', () => {
@@ -30,10 +30,7 @@ describe('AgentLogger', () => {
 
 describe('AiService', () => {
   it('should gracefully handle non-JSON model text by returning an empty product list', () => {
-    const service = new AiService(
-      {} as unknown as ProductsService,
-      new AgentLogger(),
-    );
+    const service = new AiService(new AgentLogger(), {} as AiToolExecutor);
 
     const parseResult = (
       service as unknown as {
@@ -79,13 +76,14 @@ describe('AiService', () => {
       sanitizeArguments: jest.fn((value: unknown) => value),
     };
 
-    const productsService = {
-      getLowStockProducts: jest
-        .fn()
-        .mockResolvedValue([{ id: 1, name: 'Notebook', quantity: 4 }]),
-    } as Pick<ProductsService, 'getLowStockProducts'>;
+    const toolExecutor = {
+      execute: jest.fn().mockResolvedValue({
+        resultCount: 1,
+        content: JSON.stringify([{ id: 1, name: 'Notebook', quantity: 4 }]),
+      }),
+    } as Pick<AiToolExecutor, 'execute'>;
 
-    const service = new AiService(productsService, logger as AgentLogger);
+    const service = new AiService(logger as AgentLogger, toolExecutor);
     const chat = jest
       .fn()
       .mockResolvedValueOnce({
@@ -171,8 +169,8 @@ describe('AiService', () => {
     };
 
     const service = new AiService(
-      {} as unknown as ProductsService,
       logger as AgentLogger,
+      {} as unknown as AiToolExecutor,
     );
     const chat = jest.fn().mockRejectedValue(new Error('ollama unavailable'));
 

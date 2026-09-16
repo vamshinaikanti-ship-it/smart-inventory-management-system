@@ -1,20 +1,21 @@
-import { BadGatewayException, Injectable } from '@nestjs/common';
+import { BadGatewayException, Inject, Injectable } from '@nestjs/common';
 import { performance } from 'node:perf_hooks';
 import { Ollama } from 'ollama';
-import { ProductsService } from '../products/products.service';
 import {
   AI_ANSWER_FORMAT,
+  AI_TOOL_EXECUTOR_TOKEN,
   INVENTORY_TOOLS,
-  LOW_STOCK_TOOL,
 } from './constants/ai.constants';
 import { AgentExecutionMetrics, AgentLogger } from './ai.logger';
 import { AiAnswer } from './interfaces/ai-answer.interface';
+import type { AiToolExecutorPort } from './interfaces/ai-tool.interface';
 
 @Injectable()
 export class AiService {
   constructor(
-    private readonly productsService: ProductsService,
     private readonly agentLogger: AgentLogger,
+    @Inject(AI_TOOL_EXECUTOR_TOKEN)
+    private readonly toolExecutor: AiToolExecutorPort,
   ) {}
 
   private getOllamaClient(): Ollama {
@@ -179,150 +180,16 @@ export class AiService {
           const toolStartedAt = performance.now();
 
           try {
-            let toolResult:
-              | { resultCount?: number; value?: unknown }
-              | undefined;
+            const toolResult = await this.toolExecutor.execute(
+              toolName,
+              toolCall.function.arguments,
+            );
 
-            switch (toolName) {
-              case LOW_STOCK_TOOL.function.name: {
-                const { threshold } = this.parseToolArguments(
-                  toolCall.function.arguments,
-                );
-
-                const products =
-                  await this.productsService.getLowStockProducts(threshold);
-                toolResult = { resultCount: products.length };
-
-                messages.push({
-                  role: 'tool',
-                  tool_name: toolName,
-                  content: JSON.stringify(
-                    products.map(({ id, name, quantity }) => ({
-                      id,
-                      name,
-                      quantity,
-                    })),
-                  ),
-                });
-                break;
-              }
-
-              case 'search_products': {
-                const { query, limit } = this.parseSearchProductsArguments(
-                  toolCall.function.arguments,
-                );
-
-                const products = await this.productsService.searchByName(
-                  query,
-                  limit,
-                );
-                toolResult = { resultCount: products.length };
-
-                messages.push({
-                  role: 'tool',
-                  tool_name: toolName,
-                  content: JSON.stringify(
-                    products.map(({ id, name, quantity }) => ({
-                      id,
-                      name,
-                      quantity,
-                    })),
-                  ),
-                });
-                break;
-              }
-
-              case 'get_product_by_id': {
-                const { id } = this.parseProductIdArguments(
-                  toolCall.function.arguments,
-                );
-
-                const product = await this.productsService.findById(id);
-                toolResult = { resultCount: product ? 1 : 0 };
-
-                messages.push({
-                  role: 'tool',
-                  tool_name: toolName,
-                  content: JSON.stringify({
-                    id: product.id,
-                    name: product.name,
-                    quantity: product.quantity,
-                  }),
-                });
-                break;
-              }
-
-              case 'get_total_inventory': {
-                const total = await this.productsService.getTotalInventory();
-                toolResult = { resultCount: 1, value: total };
-
-                messages.push({
-                  role: 'tool',
-                  tool_name: toolName,
-                  content: JSON.stringify({ total }),
-                });
-                break;
-              }
-
-              case 'get_inventory_value': {
-                const value = await this.productsService.getInventoryValue();
-                toolResult = { resultCount: 1, value };
-
-                messages.push({
-                  role: 'tool',
-                  tool_name: toolName,
-                  content: JSON.stringify({ value }),
-                });
-                break;
-              }
-
-              case 'get_products_by_category': {
-                const { category_id } = this.parseCategoryIdArguments(
-                  toolCall.function.arguments,
-                );
-
-                const products =
-                  await this.productsService.getProductsByCategory(category_id);
-                toolResult = { resultCount: products.length };
-
-                messages.push({
-                  role: 'tool',
-                  tool_name: toolName,
-                  content: JSON.stringify(
-                    products.map(({ id, name, quantity }) => ({
-                      id,
-                      name,
-                      quantity,
-                    })),
-                  ),
-                });
-                break;
-              }
-
-              case 'get_out_of_stock_products': {
-                const products =
-                  await this.productsService.getOutOfStockProducts();
-                toolResult = { resultCount: products.length };
-
-                messages.push({
-                  role: 'tool',
-                  tool_name: toolName,
-                  content: JSON.stringify(
-                    products.map(({ id, name, quantity }) => ({
-                      id,
-                      name,
-                      quantity,
-                    })),
-                  ),
-                });
-                break;
-              }
-
-              default:
-                throw new BadGatewayException(
-                  `Unsupported AI function: ${toolName}`,
-                );
-            }
+            messages.push({
+              role: 'tool',
+              tool_name: toolName,
+              content: toolResult.content,
+            });
 
             this.agentLogger.logToolResult({
               executionId,
@@ -380,132 +247,6 @@ export class AiService {
       }
 
       throw new BadGatewayException('AI service request failed');
-    }
-  }
-
-  private parseToolArguments(argumentsValue: unknown): { threshold: number } {
-    try {
-      const argumentsObject =
-        typeof argumentsValue === 'string'
-          ? (JSON.parse(argumentsValue) as Record<string, unknown>)
-          : (argumentsValue as Record<string, unknown>);
-
-      if (
-        typeof argumentsObject !== 'object' ||
-        argumentsObject === null ||
-        !('threshold' in argumentsObject)
-      ) {
-        throw new Error('Invalid tool arguments');
-      }
-
-      const { threshold } = argumentsObject;
-
-      if (
-        typeof threshold !== 'number' ||
-        !Number.isFinite(threshold) ||
-        threshold < 0
-      ) {
-        throw new Error('Invalid tool arguments');
-      }
-
-      return { threshold };
-    } catch {
-      throw new BadGatewayException('AI returned invalid tool arguments');
-    }
-  }
-
-  private parseSearchProductsArguments(argumentsValue: unknown): {
-    query: string;
-    limit: number;
-  } {
-    try {
-      const argumentsObject =
-        typeof argumentsValue === 'string'
-          ? (JSON.parse(argumentsValue) as Record<string, unknown>)
-          : (argumentsValue as Record<string, unknown>);
-
-      if (
-        typeof argumentsObject !== 'object' ||
-        argumentsObject === null ||
-        !('query' in argumentsObject)
-      ) {
-        throw new Error('Invalid tool arguments');
-      }
-
-      const { query, limit } = argumentsObject;
-
-      if (typeof query !== 'string' || query.trim().length === 0) {
-        throw new Error('Invalid tool arguments');
-      }
-
-      const normalizedLimit =
-        typeof limit === 'number' && Number.isFinite(limit) && limit > 0
-          ? Math.min(Math.trunc(limit), 20)
-          : 10;
-
-      return { query: query.trim(), limit: normalizedLimit };
-    } catch {
-      throw new BadGatewayException('AI returned invalid tool arguments');
-    }
-  }
-
-  private parseProductIdArguments(argumentsValue: unknown): { id: number } {
-    try {
-      const argumentsObject =
-        typeof argumentsValue === 'string'
-          ? (JSON.parse(argumentsValue) as Record<string, unknown>)
-          : (argumentsValue as Record<string, unknown>);
-
-      if (
-        typeof argumentsObject !== 'object' ||
-        argumentsObject === null ||
-        !('id' in argumentsObject)
-      ) {
-        throw new Error('Invalid tool arguments');
-      }
-
-      const { id } = argumentsObject;
-
-      if (typeof id !== 'number' || !Number.isFinite(id) || id <= 0) {
-        throw new Error('Invalid tool arguments');
-      }
-
-      return { id };
-    } catch {
-      throw new BadGatewayException('AI returned invalid tool arguments');
-    }
-  }
-
-  private parseCategoryIdArguments(argumentsValue: unknown): {
-    category_id: number;
-  } {
-    try {
-      const argumentsObject =
-        typeof argumentsValue === 'string'
-          ? (JSON.parse(argumentsValue) as Record<string, unknown>)
-          : (argumentsValue as Record<string, unknown>);
-
-      if (
-        typeof argumentsObject !== 'object' ||
-        argumentsObject === null ||
-        !('category_id' in argumentsObject)
-      ) {
-        throw new Error('Invalid tool arguments');
-      }
-
-      const { category_id } = argumentsObject;
-
-      if (
-        typeof category_id !== 'number' ||
-        !Number.isFinite(category_id) ||
-        category_id <= 0
-      ) {
-        throw new Error('Invalid tool arguments');
-      }
-
-      return { category_id };
-    } catch {
-      throw new BadGatewayException('AI returned invalid tool arguments');
     }
   }
 

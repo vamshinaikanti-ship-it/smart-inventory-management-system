@@ -1,3 +1,5 @@
+export const AI_TOOL_EXECUTOR_TOKEN = 'AI_TOOL_EXECUTOR';
+
 export const LOW_STOCK_TOOL = {
   type: 'function' as const,
   function: {
